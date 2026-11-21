@@ -1,0 +1,411 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User preferences for live +EV threshold and league monitoring.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "minEvThreshold": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 64
+        }
+      },
+      "required": ["ownerId", "displayName", "minEvThreshold", "updatedAt"]
+    },
+    "ModelCalibrationState": {
+      "title": "ModelCalibrationState",
+      "description": "Persisted mathematical online-learning model weights and performance metrics.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "sync_timestamp": {
+          "type": "string",
+          "minLength": 10,
+          "maxLength": 64
+        },
+        "model_engine": {
+          "type": "string",
+          "minLength": 2,
+          "maxLength": 120
+        },
+        "meta_improvement_notes": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "momentumSensitivity": {
+          "type": "number"
+        },
+        "shotOnTargetWeight": {
+          "type": "number"
+        },
+        "possessionWeight": {
+          "type": "number"
+        },
+        "cornerPressureWeight": {
+          "type": "number"
+        },
+        "baseTempoBias": {
+          "type": "number"
+        },
+        "homeAdvantageBase": {
+          "type": "number"
+        },
+        "totalEvaluated": {
+          "type": "integer"
+        },
+        "correctPredictions": {
+          "type": "integer"
+        },
+        "cumulativeBrier": {
+          "type": "number"
+        },
+        "cumulativeLogLoss": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "ownerId",
+        "sync_timestamp",
+        "model_engine",
+        "meta_improvement_notes",
+        "momentumSensitivity",
+        "shotOnTargetWeight",
+        "possessionWeight",
+        "cornerPressureWeight",
+        "baseTempoBias",
+        "homeAdvantageBase",
+        "totalEvaluated",
+        "correctPredictions",
+        "cumulativeBrier",
+        "cumulativeLogLoss",
+        "updatedAt"
+      ]
+    },
+    "TeamIntelligence": {
+      "title": "TeamIntelligence",
+      "description": "Per-team learned coefficients updated from real finished matches.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamKey": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "sample_size_matches": {
+          "type": "integer"
+        },
+        "home_advantage_multiplier": {
+          "type": "number"
+        },
+        "form_momentum_weight": {
+          "type": "number"
+        },
+        "volatility_index": {
+          "type": "number"
+        },
+        "fatigue_penalty_modifier": {
+          "type": "number"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "ownerId",
+        "teamKey",
+        "teamName",
+        "sample_size_matches",
+        "home_advantage_multiplier",
+        "form_momentum_weight",
+        "volatility_index",
+        "fatigue_penalty_modifier",
+        "updatedAt"
+      ]
+    },
+    "PredictionAuditLog": {
+      "title": "PredictionAuditLog",
+      "description": "Immutable evaluation record comparing pure-flow predictions against real match outcomes.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "matchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "league": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "homeTeam": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "awayTeam": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "finalScore": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 20
+        },
+        "snapshotMinute": {
+          "type": "integer"
+        },
+        "snapshotSource": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "market": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "selection": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "modelProbability": {
+          "type": "number"
+        },
+        "impliedProbability": {
+          "type": "number"
+        },
+        "evPct": {
+          "type": "number"
+        },
+        "actualOutcome": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "isCorrect": {
+          "type": "boolean"
+        },
+        "brierScore": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "ownerId",
+        "matchId",
+        "league",
+        "homeTeam",
+        "awayTeam",
+        "finalScore",
+        "snapshotMinute",
+        "market",
+        "selection",
+        "modelProbability",
+        "actualOutcome",
+        "isCorrect",
+        "brierScore",
+        "createdAt"
+      ]
+    },
+    "TrendAlertRecord": {
+      "title": "TrendAlertRecord",
+      "description": "Persisted live attack-trend alert and optional Gemini tactical brief.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "matchId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "teamName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "patternLabel": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "bestMarketPick": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "tacticalVerdict": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "dangerQualitySummary": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 600
+        },
+        "minute": {
+          "type": "integer"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "ownerId",
+        "matchId",
+        "teamName",
+        "patternLabel",
+        "bestMarketPick",
+        "tacticalVerdict",
+        "dangerQualitySummary",
+        "minute",
+        "createdAt"
+      ]
+    },
+    "PaperBetRecord": {
+      "title": "PaperBetRecord",
+      "description": "Automated paper-bet position logged from a genuine +EV alert and settled strictly on scraped final scorelines.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "matchId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "league": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "matchTitle": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "homeTeam": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "awayTeam": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "minutePlaced": { "type": "integer" },
+        "scoreAtPlacement": { "type": "string", "minLength": 3, "maxLength": 20 },
+        "market": { "type": "string", "minLength": 1, "maxLength": 80 },
+        "selection": { "type": "string", "minLength": 1, "maxLength": 120 },
+        "confidenceTier": { "type": "string", "minLength": 1, "maxLength": 40 },
+        "modelProbability": { "type": "number" },
+        "bookmakerOddsDecimal": { "type": "number" },
+        "bookmakerOddsAmerican": { "type": "string", "minLength": 1, "maxLength": 20 },
+        "evPct": { "type": "number" },
+        "stakeUnits": { "type": "number" },
+        "oddsVerifiedLive": { "type": "boolean" },
+        "status": { "type": "string", "enum": ["open", "won", "lost", "push"] },
+        "finalScore": { "type": "string", "minLength": 3, "maxLength": 20 },
+        "profitUnits": { "type": "number" },
+        "placedAt": { "type": "string", "minLength": 10, "maxLength": 64 },
+        "settledAt": { "type": "string", "minLength": 10, "maxLength": 64 },
+        "updatedAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": [
+        "ownerId", "matchId", "league", "matchTitle", "homeTeam", "awayTeam",
+        "minutePlaced", "scoreAtPlacement", "market", "selection", "confidenceTier",
+        "modelProbability", "bookmakerOddsDecimal", "bookmakerOddsAmerican",
+        "evPct", "stakeUnits", "oddsVerifiedLive", "status", "profitUnits", "placedAt", "updatedAt"
+      ]
+    },
+    "LiveCapturedSnapshot": {
+      "title": "LiveCapturedSnapshot",
+      "description": "Exact odds-free in-play match snapshot captured at 30', 45', 60', or 75' milestones.",
+      "type": "object",
+      "properties": {
+        "ownerId": { "type": "string", "minLength": 1, "maxLength": 128, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "matchId": { "type": "string", "minLength": 1, "maxLength": 64, "pattern": "^[a-zA-Z0-9_\\-]+$" },
+        "milestoneMinute": { "type": "integer" },
+        "capturedMinute": { "type": "integer" },
+        "netMomentum": { "type": "number" },
+        "snapshotJson": { "type": "string", "minLength": 2, "maxLength": 32768 },
+        "capturedAt": { "type": "string", "format": "date-time", "maxLength": 64 }
+      },
+      "required": [
+        "ownerId", "matchId", "milestoneMinute", "capturedMinute",
+        "netMomentum", "snapshotJson", "capturedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "User configuration profile owned strictly by userId."
+    },
+    "/users/{userId}/modelState/{stateId}": {
+      "schema": { "$ref": "#/entities/ModelCalibrationState" },
+      "description": "Persisted mathematical online learning weights and summary metrics."
+    },
+    "/users/{userId}/teamIntelligence/{teamId}": {
+      "schema": { "$ref": "#/entities/TeamIntelligence" },
+      "description": "Learned team-level momentum and volatility coefficients."
+    },
+    "/users/{userId}/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/PredictionAuditLog" },
+      "description": "Verified historical calibration audit records."
+    },
+    "/users/{userId}/trendAlerts/{alertId}": {
+      "schema": { "$ref": "#/entities/TrendAlertRecord" },
+      "description": "Persisted live persistent-attack and AI tactical trend alerts."
+    },
+    "/users/{userId}/paperBets/{betId}": {
+      "schema": { "$ref": "#/entities/PaperBetRecord" },
+      "description": "Automated paper-bet ledger and settlement outcomes."
+    },
+    "/users/{userId}/liveSnapshots/{snapshotId}": {
+      "schema": { "$ref": "#/entities/LiveCapturedSnapshot" },
+      "description": "Exact live in-play milestone snapshots for unbiased learning."
+    }
+  }
+}

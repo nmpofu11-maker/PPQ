@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <rect width="512" height="512" rx="96" fill="#0B0F17" />
+  <rect x="24" y="24" width="464" height="464" rx="76" fill="#131A26" stroke="#10B981" stroke-opacity="0.28" stroke-width="6" />
+  <line x1="88" y1="256" x2="424" y2="256" stroke="#334155" stroke-width="6" stroke-linecap="round" />
+  <!-- Upper emerald momentum bars -->
+  <rect x="108" y="186" width="36" height="64" rx="6" fill="#10B981" />
+  <rect x="160" y="146" width="36" height="104" rx="6" fill="#10B981" />
+  <rect x="212" y="114" width="36" height="136" rx="6" fill="#34D399" />
+  <!-- Lower sky counter-flow bars -->
+  <rect x="264" y="262" width="36" height="72" rx="6" fill="#0EA5E9" />
+  <rect x="316" y="262" width="36" height="112" rx="6" fill="#38BDF8" />
+  <!-- Late emerald surge -->
+  <rect x="368" y="158" width="36" height="92" rx="6" fill="#10B981" />
+</svg>

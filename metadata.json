@@ -1,0 +1,6 @@
+{
+  "name": "PitchPulse Quant",
+  "description": "Live soccer match momentum analyzer, odds-free probability engine, and +EV bet advisor with continuous historical calibration.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
