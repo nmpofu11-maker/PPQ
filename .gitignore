@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+
+# generated / local state
+dist-server/
+dev-dist/
+.data/
+data/

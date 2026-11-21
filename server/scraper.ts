@@ -11,16 +11,26 @@ import type {
 const USER_AGENT =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
+const FETCH_TIMEOUT_MS = 10_000;
+
+function fetchWithTimeout(url: string): Promise<Response> {
+  return fetch(url, {
+    headers: { 'User-Agent': USER_AGENT },
+    signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+  });
+}
+
 interface CacheEntry<T> {
   expiresAt: number;
   data: T;
 }
 
 const scoreboardCache = new Map<string, CacheEntry<ScrapedMatch[]>>();
+const scoreboardInflight = new Map<string, Promise<ScoreboardResult>>();
 const summaryCache = new Map<string, CacheEntry<Partial<ScrapedMatch>>>();
 let bbcCache: CacheEntry<Map<string, string>> | null = null;
 
-function normalizeTeamName(name: string): string {
+export function normalizeTeamName(name: string): string {
   return name
     .toLowerCase()
     .replace(/\b(fc|cf|sc|afc|ac|as|fk|bk|united|city|town)\b/g, '')
@@ -28,7 +38,7 @@ function normalizeTeamName(name: string): string {
     .trim();
 }
 
-function parseMinute(displayClock: string | undefined, clockVal: number | undefined, state: MatchLifecycleState): number {
+export function parseMinute(displayClock: string | undefined, clockVal: number | undefined, state: MatchLifecycleState): number {
   if (state === 'pre') return 0;
   if (displayClock) {
     const clean = displayClock.replace(/'/g, '').trim();
@@ -51,14 +61,22 @@ function parseMinute(displayClock: string | undefined, clockVal: number | undefi
   return state === 'post' ? 90 : 1;
 }
 
-function classifyPlayType(
+export function classifyPlayType(
   playType: string | undefined,
   text: string
 ): MatchEventType {
   const pt = (playType || '').toLowerCase();
   const tx = text.toLowerCase();
 
-  if (pt.includes('goal') || pt.includes('penalty---scored') || tx.startsWith('goal!')) {
+  // Goal kicks and goalkeeper plays must never be read as goals.
+  if (/goal[-_ ]?kick/.test(pt) || tx.startsWith('goal kick')) {
+    return 'other';
+  }
+  if (
+    /(^|[^a-z])goal($|[^a-z])/.test(pt) ||
+    pt.includes('penalty---scored') ||
+    tx.startsWith('goal!')
+  ) {
     return 'goal';
   }
   if (pt.includes('red-card') || tx.includes('red card') || tx.includes('second yellow')) {
@@ -103,7 +121,7 @@ function classifyPlayType(
   return 'other';
 }
 
-function resolveTeamSide(
+export function resolveTeamSide(
   teamNameFromPlay: string | undefined,
   text: string,
   homeTeam: string,
@@ -144,7 +162,7 @@ function emptyStats(): TeamMatchStats {
   };
 }
 
-function parseBoxscoreStats(statsArr: any[] | undefined): Partial<TeamMatchStats> {
+export function parseBoxscoreStats(statsArr: any[] | undefined): Partial<TeamMatchStats> {
   if (!Array.isArray(statsArr)) return {};
   const map = new Map<string, number>();
   for (const s of statsArr) {
@@ -166,7 +184,7 @@ function parseBoxscoreStats(statsArr: any[] | undefined): Partial<TeamMatchStats
   };
 }
 
-function parseLastFiveForm(lastFiveEntry: any): {
+export function parseLastFiveForm(lastFiveEntry: any): {
   formScore: number | null;
   lastFiveSummary: string[];
 } {
@@ -207,7 +225,7 @@ function parseLastFiveForm(lastFiveEntry: any): {
   return { formScore, lastFiveSummary: summary };
 }
 
-function parseScrapedOdds(oddsArr: any[] | undefined, state: MatchLifecycleState): ScrapedOdds | null {
+export function parseScrapedOdds(oddsArr: any[] | undefined, state: MatchLifecycleState): ScrapedOdds | null {
   if (!Array.isArray(oddsArr) || oddsArr.length === 0) return null;
   const primary = oddsArr[0];
   const provider = primary?.provider?.name || 'DraftKings';
@@ -275,9 +293,7 @@ async function scrapeBbcScoreCrossCheck(): Promise<Map<string, string>> {
 
   const scoreMap = new Map<string, string>();
   try {
-    const res = await fetch('https://www.bbc.com/sport/football/scores-fixtures', {
-      headers: { 'User-Agent': USER_AGENT },
-    });
+    const res = await fetchWithTimeout('https://www.bbc.com/sport/football/scores-fixtures');
     if (!res.ok) return scoreMap;
 
     const html = await res.text();
@@ -337,7 +353,7 @@ async function fetchEspnMatchSummary(
   const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event=${encodeURIComponent(
     match.id
   )}`;
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+  const res = await fetchWithTimeout(url);
   if (!res.ok) return {};
   const data = await res.json();
 
@@ -437,7 +453,7 @@ async function fetchEspnMatchSummary(
   return partial;
 }
 
-function parseScoreboardEvent(
+export function parseScoreboardEvent(
   ev: any,
   bbcScores: Map<string, string>,
   leagueLookup: Map<string, { name: string; slug: string }>
@@ -578,29 +594,61 @@ async function runWithConcurrency<T>(
   return results;
 }
 
-export async function scrapeScoreboardMatches(options?: {
+export interface ScoreboardResult {
+  matches: ScrapedMatch[];
+  sources: { espnCount: number; bbcCrossCheckedCount: number; scrapedAt: string };
+}
+
+export interface ScoreboardOptions {
   dateYyyymmdd?: string;
   enrichLimit?: number;
   onlyFinished?: boolean;
-}): Promise<{
-  matches: ScrapedMatch[];
-  sources: { espnCount: number; bbcCrossCheckedCount: number; scrapedAt: string };
-}> {
-  const cacheKey = `${options?.dateYyyymmdd || 'live'}_${options?.onlyFinished ? 'post' : 'all'}`;
-  const now = Date.now();
-  const ttl = options?.dateYyyymmdd ? 180_000 : 15_000;
+}
+
+/** Test helper: clears module-level caches so tests do not leak state. */
+export function __resetScraperCachesForTests() {
+  scoreboardCache.clear();
+  scoreboardInflight.clear();
+  summaryCache.clear();
+  bbcCache = null;
+}
+
+export function scrapeScoreboardMatches(options?: ScoreboardOptions): Promise<ScoreboardResult> {
+  // The enrichment depth is part of the key. Without it, a shallow (enrichLimit: 0)
+  // call used to populate the cache and every later full request received matches
+  // with no stats or events until the entry expired.
+  const enrichLimit = options?.enrichLimit ?? 22;
+  const cacheKey = `${options?.dateYyyymmdd || 'live'}_${options?.onlyFinished ? 'post' : 'all'}_e${enrichLimit}`;
 
   const cached = scoreboardCache.get(cacheKey);
-  if (cached && cached.expiresAt > now) {
-    return {
+  if (cached && cached.expiresAt > Date.now()) {
+    return Promise.resolve({
       matches: cached.data,
       sources: {
         espnCount: cached.data.length,
         bbcCrossCheckedCount: cached.data.filter((m) => m.bbcCrossCheck.matched).length,
         scrapedAt: new Date().toISOString(),
       },
-    };
+    });
   }
+
+  // Collapse concurrent cache misses into one upstream scrape.
+  const pending = scoreboardInflight.get(cacheKey);
+  if (pending) return pending;
+
+  const run = runScoreboardScrape(cacheKey, { ...options, enrichLimit }).finally(() => {
+    scoreboardInflight.delete(cacheKey);
+  });
+  scoreboardInflight.set(cacheKey, run);
+  return run;
+}
+
+async function runScoreboardScrape(
+  cacheKey: string,
+  options: ScoreboardOptions & { enrichLimit: number }
+): Promise<ScoreboardResult> {
+  const now = Date.now();
+  const ttl = options.dateYyyymmdd ? 180_000 : 15_000;
 
   const espnUrl = options?.dateYyyymmdd
     ? `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${encodeURIComponent(
@@ -609,7 +657,7 @@ export async function scrapeScoreboardMatches(options?: {
     : 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard';
 
   const [espnRes, bbcScores] = await Promise.all([
-    fetch(espnUrl, { headers: { 'User-Agent': USER_AGENT } }),
+    fetchWithTimeout(espnUrl),
     options?.dateYyyymmdd ? Promise.resolve(new Map<string, string>()) : scrapeBbcScoreCrossCheck(),
   ]);
 
@@ -686,7 +734,7 @@ export async function scrapeSingleMatchDetails(matchId: string): Promise<Scraped
   const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event=${encodeURIComponent(
     matchId
   )}`;
-  const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
+  const res = await fetchWithTimeout(url);
   if (!res.ok) return null;
   const data = await res.json();
   const comp = data.header?.competitions?.[0];

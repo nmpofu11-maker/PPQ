@@ -16,7 +16,17 @@ export interface TacticalBriefInput {
   winAwayProb: number;
 }
 
-const MODEL_NAME = 'gemini-4-hydrogen';
+/**
+ * Default model for tactical briefs. `gemini-3.8-flash` is listed as a stable
+ * model on https://ai.google.dev/gemini-api/docs/models. The previous hardcoded
+ * ID (`gemini-4-hydrogen`) does not appear there. Override with GEMINI_MODEL
+ * when Google retires or renames models.
+ */
+export const DEFAULT_GEMINI_MODEL = 'gemini-3.8-flash';
+
+export function getGeminiModelName(): string {
+  return (process.env.GEMINI_MODEL || '').trim() || DEFAULT_GEMINI_MODEL;
+}
 
 function extractReadableGeminiError(raw: string): string {
   try {
@@ -33,6 +43,7 @@ function extractReadableGeminiError(raw: string): string {
 export async function generateTacticalBrief(
   input: TacticalBriefInput
 ): Promise<TacticalAiBrief> {
+  const MODEL_NAME = getGeminiModelName();
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey || apiKey === 'MY_GEMINI_API_KEY') {
     throw new Error(
