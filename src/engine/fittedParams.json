@@ -1,0 +1,5 @@
+{
+  "fitted": false,
+  "note": "Not fitted. These defaults are hand-chosen. Run `npm run collect:history` then `npm run fit -- --write` to replace them with parameters that beat the baselines out-of-sample.",
+  "params": null
+}

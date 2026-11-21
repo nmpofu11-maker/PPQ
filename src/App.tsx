@@ -152,7 +152,7 @@ export default function App() {
   );
   const [radarScope, setRadarScope] = useState<AlertScopeMode>('all');
   const [verifiedLiveOnly, setVerifiedLiveOnly] = useState<boolean>(() =>
-    loadStoredJson<boolean>('pitchpulse_verified_live_only', false)
+    loadStoredJson<boolean>('pitchpulse_verified_live_only', true)
   );
   const [alertScope, setAlertScope] = useState<AlertScopeMode>(() =>
     loadStoredJson<AlertScopeMode>('pitchpulse_alert_scope', 'all')

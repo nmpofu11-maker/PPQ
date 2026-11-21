@@ -40,6 +40,8 @@ export function recordNewPaperBets(params: {
 
   for (const al of alerts) {
     if (al.state !== 'in' || al.evPct <= 0 || al.confidenceTier === 'Watch') continue;
+    // A paper ledger is only meaningful if it is priced off odds that really were live.
+    if (!al.oddsVerifiedLive) continue;
     const betId = buildPaperBetId(al);
     if (existingIds.has(betId)) continue;
 

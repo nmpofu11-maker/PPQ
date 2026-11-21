@@ -10,6 +10,7 @@ import type {
   ScrapedMatch,
   TeamMatchStats,
 } from '../types/soccer';
+import { getModelParams, type StructuralParams } from './modelParams';
 
 const DECAY_LAMBDA = 0.085; // ~8.15 min half-life for recency-weighted match flow
 
@@ -78,8 +79,11 @@ export function reconstructSnapshotAtMinute(
 
   let homeScore = 0;
   let awayScore = 0;
+  // Boxscore possession is a FULL-MATCH figure; using it for an earlier minute would leak
+  // information from the future. It is unknowable at `targetMinute`, so it is left unset
+  // (null => no possession edge) for reconstructed snapshots.
   const homeStats: TeamMatchStats = {
-    possessionPct: match.homeStats.possessionPct,
+    possessionPct: null,
     totalShots: 0,
     shotsOnTarget: 0,
     wonCorners: 0,
@@ -92,7 +96,7 @@ export function reconstructSnapshotAtMinute(
     lastFiveSummary: match.homeStats.lastFiveSummary,
   };
   const awayStats: TeamMatchStats = {
-    possessionPct: match.awayStats.possessionPct,
+    possessionPct: null,
     totalShots: 0,
     shotsOnTarget: 0,
     wonCorners: 0,
@@ -271,7 +275,8 @@ function poissonPmf(k: number, lambda: number): number {
  */
 export function predictMatchMarkets(
   snapshot: OddsFreeMatchSnapshot,
-  modelState: Pick<ModelIntelligencePayload, 'globalWeights' | 'team_intelligence_matrices'>
+  modelState: Pick<ModelIntelligencePayload, 'globalWeights' | 'team_intelligence_matrices'>,
+  params: StructuralParams = getModelParams()
 ): PureFlowPrediction {
   const w = modelState.globalWeights;
   const homeKey = slugifyTeamKey(snapshot.homeTeam);
@@ -302,16 +307,20 @@ export function predictMatchMarkets(
   const remainingFraction =
     snapshot.state === 'post' ? 0 : clamp((92 - effectiveMinute) / 90, 0.02, 1.02);
 
-  // Compute offensive intensity per 90 mins purely from real match stats + real last-5 form
-  const homeSotRate = snapshot.homeStats.shotsOnTarget / elapsed90;
-  const awaySotRate = snapshot.awayStats.shotsOnTarget / elapsed90;
-  const homeCornerRate = snapshot.homeStats.wonCorners / elapsed90;
-  const awayCornerRate = snapshot.awayStats.wonCorners / elapsed90;
+  // Per-90 attacking rates, shrunk toward a league prior (shrinkMinutes = 0 => raw rates).
+  const priorExposure = params.shrinkMinutes / 90;
+  const shrunkRate = (count: number, prior90: number) =>
+    (count + prior90 * priorExposure) / (elapsed90 + priorExposure);
 
-  const homeFormBoost = (snapshot.homeStats.formScore ?? 0) * 0.42 * homeFormWeight;
-  const awayFormBoost = (snapshot.awayStats.formScore ?? 0) * 0.42 * awayFormWeight;
-  const homeShotVolRate = snapshot.homeStats.totalShots / elapsed90;
-  const awayShotVolRate = snapshot.awayStats.totalShots / elapsed90;
+  const homeSotRate = shrunkRate(snapshot.homeStats.shotsOnTarget, params.priorSot90);
+  const awaySotRate = shrunkRate(snapshot.awayStats.shotsOnTarget, params.priorSot90);
+  const homeCornerRate = shrunkRate(snapshot.homeStats.wonCorners, params.priorCorners90);
+  const awayCornerRate = shrunkRate(snapshot.awayStats.wonCorners, params.priorCorners90);
+
+  const homeFormBoost = (snapshot.homeStats.formScore ?? 0) * params.formCoef * homeFormWeight;
+  const awayFormBoost = (snapshot.awayStats.formScore ?? 0) * params.formCoef * awayFormWeight;
+  const homeShotVolRate = shrunkRate(snapshot.homeStats.totalShots, params.priorShots90);
+  const awayShotVolRate = shrunkRate(snapshot.awayStats.totalShots, params.priorShots90);
 
   const possHomeEdge =
     snapshot.homeStats.possessionPct !== null && snapshot.awayStats.possessionPct !== null
@@ -330,12 +339,12 @@ export function predictMatchMarkets(
   const momentumTilt = Math.tanh(currentMom.netMomentum / 10);
 
   const homeBase90 = clamp(
-    (1.22 +
+    (params.baseHome90 +
       w.baseTempoBias +
-      w.shotOnTargetWeight * 0.14 * homeSotRate +
-      0.04 * homeShotVolRate +
-      w.cornerPressureWeight * 0.06 * homeCornerRate +
-      w.possessionWeight * 0.35 * possHomeEdge +
+      w.shotOnTargetWeight * params.sotCoef * homeSotRate +
+      params.shotVolCoef * homeShotVolRate +
+      w.cornerPressureWeight * params.cornerCoef * homeCornerRate +
+      w.possessionWeight * params.possessionCoef * possHomeEdge +
       homeFormBoost) *
       homeAdvMult *
       homeVol *
@@ -347,12 +356,12 @@ export function predictMatchMarkets(
   );
 
   const awayBase90 = clamp(
-    (1.08 +
+    (params.baseAway90 +
       w.baseTempoBias +
-      w.shotOnTargetWeight * 0.14 * awaySotRate +
-      0.04 * awayShotVolRate +
-      w.cornerPressureWeight * 0.06 * awayCornerRate +
-      w.possessionWeight * 0.35 * -possHomeEdge +
+      w.shotOnTargetWeight * params.sotCoef * awaySotRate +
+      params.shotVolCoef * awayShotVolRate +
+      w.cornerPressureWeight * params.cornerCoef * awayCornerRate +
+      w.possessionWeight * params.possessionCoef * -possHomeEdge +
       awayFormBoost) *
       awayVol *
       lateFatigueAway *
