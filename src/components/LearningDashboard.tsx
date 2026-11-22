@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import type { User } from 'firebase/auth';
+import { storedBrierSkillVsUniform } from '../engine/evaluation';
 import type {
   ModelIntelligencePayload,
   PaperBetRecord,
@@ -261,7 +262,7 @@ export const LearningDashboard: React.FC<LearningDashboardProps> = ({
             <p className="text-xs text-slate-400 leading-relaxed">
               {user
                 ? `Signed in as ${user.email || user.displayName}. Model weights, live milestone captures, audit logs, and paper-bet ROI sync automatically to Cloud Firestore.`
-                : 'Sign in with Google to persist calibrated weights, live captures, paper-bet ledger, and audit history across sessions.'}
+                : 'Sign in with Google to persist learned weights, live captures, paper-bet ledger, and audit history across sessions.'}
             </p>
           </div>
 
@@ -311,6 +312,15 @@ export const LearningDashboard: React.FC<LearningDashboardProps> = ({
               ? modelState.metrics.meanBrierScore.toFixed(4)
               : '—'}
           </div>
+          {modelState.metrics.meanBrierScore !== null && (
+            <div className="mt-1 text-[11px] text-slate-400">
+              Skill vs. uniform guess:{' '}
+              <span className="font-mono tabular-nums text-slate-200">
+                {(storedBrierSkillVsUniform(modelState.metrics.meanBrierScore) * 100).toFixed(1)}%
+              </span>{' '}
+              (≤0% = no better than guessing; small samples are noisy)
+            </div>
+          )}
         </div>
         <div className="bg-[#131A26] border border-white/8 rounded-xl p-4">
           <div className="text-xs text-slate-400">Mean Log-Loss</div>
@@ -538,7 +548,7 @@ export const LearningDashboard: React.FC<LearningDashboardProps> = ({
 
         {teamEntries.length === 0 ? (
           <div className="text-xs text-slate-400 py-6 text-center border border-white/8 rounded-lg bg-[#0E141F]">
-            No team matrices calibrated yet. Click &ldquo;Run Historical Calibration Batch&rdquo; above to scrape and evaluate real finished matches.
+            No team matrices learned yet. Click &ldquo;Run Historical Calibration Batch&rdquo; above to scrape and evaluate real finished matches.
           </div>
         ) : (
           <div className="overflow-x-auto border border-white/8 rounded-lg">
