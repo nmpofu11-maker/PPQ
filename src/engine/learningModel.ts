@@ -320,7 +320,7 @@ export function evaluateAndUpdateModel(
   const nextState: ModelIntelligencePayload = {
     sync_timestamp: new Date().toISOString(),
     model_engine: 'Poisson-Flow Online Brier Optimizer v1.0',
-    meta_improvement_notes: `Calibrated on +${candidates.length} finished matches (${exactLiveUsedCount} exact live-captured, ${candidates.length - exactLiveUsedCount} reconstructed; ${totalEvaluated} total). Mean Brier ${meanBrier}, 1X2 Accuracy ${accuracyPct}%. Mean goal residual ${avgGoalRes}, home residual ${avgHomeRes}.`,
+    meta_improvement_notes: `Updated on +${candidates.length} finished matches (${exactLiveUsedCount} exact live-captured, ${candidates.length - exactLiveUsedCount} reconstructed; ${totalEvaluated} total). Mean Brier ${meanBrier}, 1X2 Accuracy ${accuracyPct}%. Mean goal residual ${avgGoalRes}, home residual ${avgHomeRes}.`,
     globalWeights: nextWeights,
     metrics: {
       totalEvaluated,

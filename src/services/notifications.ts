@@ -4,6 +4,7 @@ import {
   type AlertPlatform,
   type CrossPlatformAlertItem,
 } from '../engine/alertNotifier';
+import type { ModelIntelligencePayload } from '../types/soccer';
 
 export type OsPermissionState = NotificationPermission | 'unsupported' | 'iframe-blocked';
 
@@ -182,6 +183,27 @@ function urlBase64ToUint8Array(base64String: string): Uint8Array {
   return outputArray;
 }
 
+/** The learned model synced to the server so background alerts match what this browser shows. */
+export interface BackgroundPushModel {
+  globalWeights: ModelIntelligencePayload['globalWeights'];
+  team_intelligence_matrices: ModelIntelligencePayload['team_intelligence_matrices'];
+}
+
+/** Server caps the model at this many teams; send the best-sampled ones. */
+const MAX_PUSH_MODEL_TEAMS = 300;
+
+export function toBackgroundPushModel(
+  state: Pick<ModelIntelligencePayload, 'globalWeights' | 'team_intelligence_matrices'>
+): BackgroundPushModel {
+  const entries = Object.entries(state.team_intelligence_matrices)
+    .sort((a, b) => b[1].sample_size_matches - a[1].sample_size_matches)
+    .slice(0, MAX_PUSH_MODEL_TEAMS);
+  return {
+    globalWeights: state.globalWeights,
+    team_intelligence_matrices: Object.fromEntries(entries),
+  };
+}
+
 export interface BackgroundPushPreferences {
   minEvThreshold: number;
   verifiedLiveOnly: boolean;
@@ -219,7 +241,8 @@ export async function getBackgroundPushSubscriptionState(): Promise<{
 }
 
 export async function subscribeToBackgroundWebPush(
-  preferences: BackgroundPushPreferences
+  preferences: BackgroundPushPreferences,
+  model?: BackgroundPushModel
 ): Promise<{
   ok: boolean;
   endpoint: string | null;
@@ -248,7 +271,11 @@ export async function subscribeToBackgroundWebPush(
   try {
     const keyRes = await fetch('/api/push/vapid-public-key');
     if (!keyRes.ok) throw new Error('Failed to fetch VAPID public key.');
-    const { publicKey } = (await keyRes.json()) as { publicKey: string };
+    const keyInfo = (await keyRes.json()) as { publicKey: string | null; configured?: boolean };
+    if (!keyInfo.configured || !keyInfo.publicKey) {
+      throw new Error('Background push is not configured on this server.');
+    }
+    const publicKey = keyInfo.publicKey;
 
     const reg = await navigator.serviceWorker.ready;
     let sub = await reg.pushManager.getSubscription();
@@ -262,7 +289,7 @@ export async function subscribeToBackgroundWebPush(
     const saveRes = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscription: sub.toJSON(), preferences }),
+      body: JSON.stringify({ subscription: sub.toJSON(), preferences, model }),
     });
     if (!saveRes.ok) {
       const errBody = await saveRes.json().catch(() => ({}));
@@ -280,7 +307,8 @@ export async function subscribeToBackgroundWebPush(
 }
 
 export async function syncBackgroundPushPreferences(
-  preferences: BackgroundPushPreferences
+  preferences: BackgroundPushPreferences,
+  model?: BackgroundPushModel
 ): Promise<boolean> {
   const state = await getBackgroundPushSubscriptionState();
   if (!state.subscribed) return false;
@@ -291,7 +319,7 @@ export async function syncBackgroundPushPreferences(
     const res = await fetch('/api/push/subscribe', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ subscription: sub.toJSON(), preferences }),
+      body: JSON.stringify({ subscription: sub.toJSON(), preferences, model }),
     });
     return res.ok;
   } catch {
@@ -322,19 +350,22 @@ export async function unsubscribeFromBackgroundWebPush(): Promise<boolean> {
 export async function sendBackgroundPushTest(): Promise<{
   ok: boolean;
   sent: number;
+  reason?: 'cooldown' | 'not_subscribed' | 'failed';
 }> {
   try {
     const state = await getBackgroundPushSubscriptionState();
+    if (!state.endpoint) return { ok: false, sent: 0, reason: 'not_subscribed' };
     const res = await fetch('/api/push/test', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ endpoint: state.endpoint }),
     });
-    if (!res.ok) return { ok: false, sent: 0 };
+    if (res.status === 429) return { ok: false, sent: 0, reason: 'cooldown' };
+    if (!res.ok) return { ok: false, sent: 0, reason: 'failed' };
     const data = await res.json();
     return { ok: Boolean(data.ok), sent: Number(data.sent) || 0 };
   } catch {
-    return { ok: false, sent: 0 };
+    return { ok: false, sent: 0, reason: 'failed' };
   }
 }
 

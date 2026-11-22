@@ -36,7 +36,7 @@ export const MethodologyView: React.FC = () => {
             03. Multi-Market Joint Distribution
           </h2>
           <p className="text-xs text-slate-300 leading-relaxed">
-            Evaluating the joint Poisson grid P(ΔG_H = i) · P(ΔG_A = j) added to the live scoreline (G_H, G_A) yields calibrated probabilities across Match Winner (1X2), Draw No Bet, Over/Under lines (0.5–4.5), Double Chance, and Asian Handicap, while competing hazard rates λ_H / (λ_H + λ_A) determine Next Team to Score.
+            Evaluating the joint Poisson grid P(ΔG_H = i) · P(ΔG_A = j) added to the live scoreline (G_H, G_A) yields model probabilities (not verified as calibrated) across Match Winner (1X2), Draw No Bet, Over/Under lines (0.5–4.5), Double Chance, and Asian Handicap, while competing hazard rates λ_H / (λ_H + λ_A) determine Next Team to Score.
           </p>
         </div>
 
@@ -47,6 +47,34 @@ export const MethodologyView: React.FC = () => {
           <p className="text-xs text-slate-300 leading-relaxed">
             Bookmaker odds are compared strictly after Stage 1 probabilities lock, flagging positive Expected Value EV = p_model · O_dec - 1 and ¼-Kelly stake sizing. On completed matches, causal mid-match snapshots (t = 65&apos;) are replayed without future leakage to update global weights and team matrices via bounded Brier-loss gradient steps.
           </p>
+        </div>
+
+        <div className="bg-[#131A26] border border-amber-500/30 rounded-xl p-5 space-y-2.5">
+          <h2 className="text-sm font-semibold text-amber-300">
+            Limitations &amp; what has (not) been validated
+          </h2>
+          <ul className="text-xs text-slate-300 leading-relaxed list-disc pl-5 space-y-1.5">
+            <li>
+              The structural constants (base goal rates, shot/corner/possession/form coefficients) are
+              hand-chosen defaults. They have not been fitted to data unless the repository&apos;s fitted
+              parameter file says so.
+            </li>
+            <li>
+              Probabilities are not guaranteed to be calibrated. Treat the Brier skill shown on the Learning
+              tab as the honest yardstick: a value near or below 0% means the model is no better than guessing
+              a fixed distribution.
+            </li>
+            <li>
+              Online learning updates use finished matches the app has seen, so early numbers are noisy and
+              small-sample. Beating a bookmaker needs a measured edge over closing prices across hundreds of
+              matches; this app does not claim to have shown that.
+            </li>
+            <li>
+              Odds come from a scraped, unofficial feed and can be stale or mislabelled. By default only odds
+              marked as verified live are used for +EV flags.
+            </li>
+            <li>Nothing here is financial or betting advice. Paper-ledger results are simulated.</li>
+          </ul>
         </div>
       </div>
     </div>

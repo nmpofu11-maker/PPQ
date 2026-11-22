@@ -18,7 +18,7 @@ export default defineConfig(() => {
           name: 'PitchPulse Quant',
           short_name: 'PitchPulse',
           description:
-            'Live soccer match momentum analyzer, odds-free probability engine, and real-time +EV alert advisor.',
+            'Experimental live soccer flow model with odds comparison. Not betting advice.',
           theme_color: '#0B0F17',
           background_color: '#0B0F17',
           display: 'standalone',
@@ -84,6 +84,19 @@ export default defineConfig(() => {
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),
+      },
+    },
+    build: {
+      chunkSizeWarningLimit: 600, // firebase vendor chunk is ~570 kB by itself
+      rollupOptions: {
+        output: {
+          manualChunks(id: string) {
+            if (!id.includes('node_modules')) return undefined;
+            if (id.includes('/firebase/') || id.includes('/@firebase/')) return 'vendor-firebase';
+            if (id.includes('/react/') || id.includes('/react-dom/') || id.includes('/scheduler/')) return 'vendor-react';
+            return undefined;
+          },
+        },
       },
     },
     server: {

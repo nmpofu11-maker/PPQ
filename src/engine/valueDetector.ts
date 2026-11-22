@@ -102,6 +102,11 @@ function buildAlert(params: {
 }
 
 export interface EvaluateValueOptions {
+  /**
+   * Only surface edges priced off bookmaker odds that are verified as live.
+   * Defaults to TRUE: comparing a live-state probability against stale pre-match odds
+   * manufactures phantom "+EV". Pass `false` explicitly to opt out.
+   */
   verifiedLiveOnly?: boolean;
 }
 
@@ -118,7 +123,8 @@ export function evaluateBettingValue(
 ): ValueAlert[] {
   const odds = match.scrapedOdds;
   if (!odds || match.state !== 'in') return [];
-  if (options?.verifiedLiveOnly && !odds.isLive) return [];
+  const verifiedLiveOnly = options?.verifiedLiveOnly ?? true;
+  if (verifiedLiveOnly && !odds.isLive) return [];
   if (match.minute < 3 && !match.hasDetailedFlow) return [];
 
   const candidates: (ValueAlert | null)[] = [];
