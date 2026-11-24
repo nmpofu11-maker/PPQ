@@ -250,17 +250,42 @@ test('malformed and oversized JSON bodies get clean 4xx responses', async () => 
   }
 });
 
-test('match routes validate input and hide upstream error details', async () => {
+test('match and league routes validate input, forward league queries, and hide upstream error details', async () => {
+  const seenOpts: Array<{ league?: string; allLeagues?: boolean }> = [];
   const h = await start({
-    scrapeScoreboard: async () => {
+    listLeagues: async () => [
+      { slug: 'eng.1', name: 'English Premier League' },
+      { slug: 'bra.1', name: 'Brazilian Serie A' },
+    ],
+    scrapeScoreboard: async (opts) => {
+      seenOpts.push({ league: opts?.league, allLeagues: opts?.allLeagues });
+      if (opts?.league === 'bra.1') {
+        return {
+          matches: [],
+          sources: { espnCount: 0, bbcCrossCheckedCount: 0, scrapedAt: new Date().toISOString(), leagueCount: 0 },
+        };
+      }
       throw new Error('ESPN scoreboard scrape failed with HTTP 500');
     },
     scrapeMatch: async (id: string) => (id === 'missing' ? null : ({ id } as never)),
   });
   try {
+    const leaguesRes = await fetch(`${h.base}/api/leagues`);
+    assert.equal(leaguesRes.status, 200);
+    const leaguesBody = (await leaguesRes.json()) as { count: number; leagues: Array<{ slug: string }> };
+    assert.equal(leaguesBody.count, 2);
+    assert.equal(leaguesBody.leagues[1].slug, 'bra.1');
+
     assert.equal((await fetch(`${h.base}/api/matches/live?date=bad`)).status, 400);
+    assert.equal((await fetch(`${h.base}/api/matches/live?league=bad/slug!`)).status, 400);
+
+    const bra = await fetch(`${h.base}/api/matches/live?league=bra.1`);
+    assert.equal(bra.status, 200);
+    assert.deepEqual(seenOpts.at(-1), { league: 'bra.1', allLeagues: false });
+
     const live = await fetch(`${h.base}/api/matches/live`);
     assert.equal(live.status, 502);
+    assert.deepEqual(seenOpts.at(-1), { league: undefined, allLeagues: true });
     assert.ok(!JSON.stringify(await live.json()).includes('HTTP 500'));
     assert.equal((await fetch(`${h.base}/api/matches/bad%20id`)).status, 400);
     assert.equal((await fetch(`${h.base}/api/matches/missing`)).status, 404);

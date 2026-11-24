@@ -11,6 +11,7 @@ import {
   saveLiveSnapshotsToFirestore,
 } from '../services/persistence';
 import { loadStoredJson, saveStoredJson } from '../lib/storage';
+import { parseJsonResponse } from '../lib/safeJson';
 
 const SNAPSHOT_STORAGE_KEY = 'pitchpulse_live_snapshots';
 
@@ -129,11 +130,10 @@ export function useModelLearning(params: {
       setCalibrationStatusMsg(null);
       try {
         const res = await fetch(`/api/historical/finished?days=${encodeURIComponent(String(days))}`);
-        if (!res.ok) {
-          const body = await res.json().catch(() => ({}));
-          throw new Error(body.error || 'Historical scrape failed');
-        }
-        const data = await res.json();
+        const data = await parseJsonResponse<{ matches?: ScrapedMatch[]; datesScraped?: string[] }>(
+          res,
+          'Historical scrape'
+        );
         const finished: ScrapedMatch[] = Array.isArray(data.matches) ? data.matches : [];
         const { nextState, newAudits, processedCount } = evaluateAndUpdateModel(
           finished,

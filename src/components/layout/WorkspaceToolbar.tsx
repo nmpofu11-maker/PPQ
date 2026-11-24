@@ -29,7 +29,8 @@ export function WorkspaceToolbar(props: {
     <div className="border-b border-white/8 bg-[#0B0F17] px-6 py-3 flex flex-wrap items-center justify-between gap-4">
       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-400">
         <span className="font-mono tabular-nums text-slate-200">
-          {p.liveCount} Live · {p.matchCount} Scraped Fixtures
+          {p.liveCount} Live · {p.matchCount} Fixtures
+          {p.sourcesMeta?.leagueCount ? ` · ${p.sourcesMeta.leagueCount} Leagues` : ''}
         </span>
         {p.sourcesMeta && (
           <>

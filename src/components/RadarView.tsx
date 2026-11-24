@@ -9,6 +9,7 @@ import type {
   TacticalAiBrief,
   ValueAlert,
 } from '../types/soccer';
+import type { EspnLeagueOption } from '../hooks/useLiveFeed';
 import { isTopTierLeague } from '../engine/leagueTiers';
 import { MatchInspector } from './MatchInspector';
 
@@ -16,6 +17,9 @@ type StatusFilter = 'all' | MatchLifecycleState;
 
 export function RadarView(props: {
   matches: ScrapedMatch[];
+  espnLeagues?: EspnLeagueOption[];
+  loadingLeague?: string | null;
+  onSelectEspnLeague?: (slug: string) => Promise<ScrapedMatch[]>;
   isLoading: boolean;
   isRefreshingSingle: boolean;
   selectedMatchId: string | null;
@@ -32,6 +36,7 @@ export function RadarView(props: {
   onRefreshMatch: (id: string) => void;
 }) {
   const { matches, predictionsByMatch, alertsByMatch, trendsByMatch } = props;
+  const espnLeagues = props.espnLeagues ?? [];
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all');
   const [leagueFilter, setLeagueFilter] = useState('ALL');
   const [searchQuery, setSearchQuery] = useState('');
@@ -39,19 +44,58 @@ export function RadarView(props: {
 
   const watchlistSet = useMemo(() => new Set(props.watchlistIds), [props.watchlistIds]);
 
-  const leagues = useMemo(() => {
-    const set = new Set<string>();
-    for (const m of matches) set.add(m.league);
-    return ['ALL', ...Array.from(set).sort()];
-  }, [matches]);
+  const { loadedLeagues, remainingEspnLeagues, slugToName } = useMemo(() => {
+    const loadedNames = new Set<string>();
+    const loadedSlugs = new Set<string>();
+    for (const m of matches) {
+      loadedNames.add(m.league);
+      if (m.leagueSlug) loadedSlugs.add(m.leagueSlug.toLowerCase());
+    }
+    const sortedLoaded = Array.from(loadedNames).sort((a, b) => a.localeCompare(b));
+    const map = new Map<string, string>();
+    const remaining: EspnLeagueOption[] = [];
+    for (const lg of espnLeagues) {
+      map.set(lg.slug, lg.name);
+      if (!loadedNames.has(lg.name) && !loadedSlugs.has(lg.slug.toLowerCase())) {
+        remaining.push(lg);
+      }
+    }
+    return {
+      loadedLeagues: sortedLoaded,
+      remainingEspnLeagues: remaining,
+      slugToName: map,
+    };
+  }, [matches, espnLeagues]);
+
+  const handleLeagueChange = async (value: string) => {
+    if (value.startsWith('espn:')) {
+      const slug = value.slice(5);
+      setLeagueFilter(value);
+      if (props.onSelectEspnLeague) {
+        const fetched = await props.onSelectEspnLeague(slug);
+        if (fetched.length > 0) {
+          setLeagueFilter(fetched[0].league);
+        }
+      }
+      return;
+    }
+    setLeagueFilter(value);
+  };
 
   const filteredMatches = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
+    const targetSlug = leagueFilter.startsWith('espn:') ? leagueFilter.slice(5).toLowerCase() : null;
     return matches.filter((m) => {
       if (statusFilter !== 'all' && m.state !== statusFilter) return false;
       if (radarScope === 'watchlist' && !watchlistSet.has(m.id)) return false;
       if (radarScope === 'top_leagues' && !isTopTierLeague(m.league, m.leagueSlug)) return false;
-      if (leagueFilter !== 'ALL' && m.league !== leagueFilter) return false;
+      if (leagueFilter !== 'ALL') {
+        if (targetSlug) {
+          if (m.leagueSlug.toLowerCase() !== targetSlug) return false;
+        } else if (m.league !== leagueFilter) {
+          return false;
+        }
+      }
       if (
         q &&
         !m.homeTeam.toLowerCase().includes(q) &&
@@ -66,7 +110,11 @@ export function RadarView(props: {
 
   const liveCount = useMemo(() => matches.filter((m) => m.state === 'in').length, [matches]);
 
-  const selectedMatch = matches.find((m) => m.id === props.selectedMatchId) || filteredMatches[0] || null;
+  const selectedMatch =
+    filteredMatches.find((m) => m.id === props.selectedMatchId) ||
+    filteredMatches[0] ||
+    matches.find((m) => m.id === props.selectedMatchId) ||
+    null;
   const selectedPrediction = selectedMatch ? predictionsByMatch.get(selectedMatch.id) || null : null;
   const selectedAlerts = selectedMatch ? alertsByMatch.get(selectedMatch.id) || [] : [];
   const selectedTrends = selectedMatch ? trendsByMatch.get(selectedMatch.id) || [] : [];
@@ -136,28 +184,51 @@ export function RadarView(props: {
               <select
                 id="league-filter"
                 value={leagueFilter}
-                onChange={(e) => setLeagueFilter(e.target.value)}
+                onChange={(e) => void handleLeagueChange(e.target.value)}
                 className="w-full bg-[#0E141F] border border-white/12 rounded-lg px-3 py-2 text-xs text-slate-100"
               >
-                {leagues.map((lg) => (
-                  <option key={lg} value={lg}>
-                    {lg === 'ALL' ? 'All Global Leagues' : lg}
-                  </option>
-                ))}
+                <option value="ALL">
+                  All Global Leagues ({loadedLeagues.length} active{espnLeagues.length > 0 ? ` / ${espnLeagues.length} ESPN` : ''})
+                </option>
+                {loadedLeagues.length > 0 && (
+                  <optgroup label={`Active & Upcoming (${loadedLeagues.length})`}>
+                    {loadedLeagues.map((lg) => (
+                      <option key={lg} value={lg}>
+                        {lg}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {remainingEspnLeagues.length > 0 && (
+                  <optgroup label={`Load Other ESPN Leagues (${remainingEspnLeagues.length})`}>
+                    {remainingEspnLeagues.map((lg) => (
+                      <option key={lg.slug} value={`espn:${lg.slug}`}>
+                        {lg.name} ({lg.slug})
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
               </select>
+              {props.loadingLeague && (
+                <p className="mt-1.5 text-[11px] text-emerald-300 font-mono">
+                  Loading {slugToName.get(props.loadingLeague) || props.loadingLeague} from ESPN…
+                </p>
+              )}
             </div>
           </div>
         </div>
 
-        {props.isLoading && matches.length === 0 ? (
+        {(props.isLoading && matches.length === 0) || props.loadingLeague ? (
           <div className="space-y-2">
             {Array.from({ length: 6 }).map((_, i) => (
               <div key={i} className="h-20 rounded-lg bg-[#0E141F] border border-white/8 animate-pulse" />
             ))}
           </div>
         ) : filteredMatches.length === 0 ? (
-          <div className="py-10 text-center text-xs text-slate-400 border border-white/8 rounded-lg bg-[#0E141F]">
-            No scraped fixtures match your current filters.
+          <div className="py-10 px-4 text-center text-xs text-slate-400 border border-white/8 rounded-lg bg-[#0E141F]">
+            {leagueFilter.startsWith('espn:')
+              ? `No current or upcoming ESPN fixtures scheduled for ${slugToName.get(leagueFilter.slice(5)) || leagueFilter.slice(5)}.`
+              : 'No scraped fixtures match your current filters.'}
           </div>
         ) : (
           <div className="space-y-1.5 max-h-[720px] overflow-y-auto pr-1">

@@ -12,12 +12,106 @@ const USER_AGENT =
   'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36';
 
 const FETCH_TIMEOUT_MS = 10_000;
+const ESPN_SITE_HOSTS = [
+  'https://site.api.espn.com',
+  'https://site.web.api.espn.com',
+] as const;
 
-function fetchWithTimeout(url: string): Promise<Response> {
+export interface EspnLeagueInfo {
+  slug: string;
+  name: string;
+}
+
+const KNOWN_LEAGUE_NAMES: Record<string, string> = {
+  'eng.1': 'English Premier League',
+  'eng.2': 'EFL Championship',
+  'eng.3': 'EFL League One',
+  'eng.4': 'EFL League Two',
+  'eng.fa': 'English FA Cup',
+  'eng.league_cup': 'English Carabao Cup',
+  'esp.1': 'Spanish La Liga',
+  'esp.2': 'Spanish Segunda División',
+  'esp.copa_del_rey': 'Spanish Copa del Rey',
+  'ger.1': 'German Bundesliga',
+  'ger.2': 'German 2. Bundesliga',
+  'ger.dfb_pokal': 'German DFB-Pokal',
+  'ita.1': 'Italian Serie A',
+  'ita.2': 'Italian Serie B',
+  'ita.coppa_italia': 'Coppa Italia',
+  'fra.1': 'French Ligue 1',
+  'fra.2': 'French Ligue 2',
+  'fra.coupe': 'Coupe de France',
+  'ned.1': 'Dutch Eredivisie',
+  'por.1': 'Portuguese Primeira Liga',
+  'tur.1': 'Turkish Super Lig',
+  'bel.1': 'Belgian Pro League',
+  'sco.1': 'Scottish Premiership',
+  'aut.1': 'Austrian Bundesliga',
+  'sui.1': 'Swiss Super League',
+  'gre.1': 'Greek Super League',
+  'den.1': 'Danish Superliga',
+  'nor.1': 'Norwegian Eliteserien',
+  'swe.1': 'Swedish Allsvenskan',
+  'rus.1': 'Russian Premier League',
+  'usa.1': 'MLS',
+  'usa.nwsl': 'NWSL',
+  'usa.w.1': 'NWSL',
+  'usa.w.usl.1': 'USL Super League',
+  'mex.1': 'Liga MX',
+  'bra.1': 'Brazilian Serie A',
+  'arg.1': 'Argentine Liga Profesional',
+  'col.1': 'Colombian Primera A',
+  'chi.1': 'Chilean Primera División',
+  'aus.1': 'Australian A-League Men',
+  'aus.w.1': 'Australian A-League Women',
+  'jpn.1': 'J1 League',
+  'ksa.1': 'Saudi Pro League',
+  'uefa.champions': 'UEFA Champions League',
+  'uefa.europa': 'UEFA Europa League',
+  'uefa.europa.conf': 'UEFA Conference League',
+  'uefa.wchampions': "UEFA Women's Champions League",
+  'uefa.nations': 'UEFA Nations League',
+  'conmebol.libertadores': 'CONMEBOL Libertadores',
+  'conmebol.sudamericana': 'CONMEBOL Sudamericana',
+  'concacaf.champions': 'CONCACAF Champions Cup',
+  'concacaf.nations.league': 'CONCACAF Nations League',
+  'fifa.world': 'FIFA World Cup',
+  'fifa.wwc': "FIFA Women's World Cup",
+  'fifa.worldq.concacaf': 'World Cup Qualifying (CONCACAF)',
+  'fifa.worldq.uefa': 'World Cup Qualifying (UEFA)',
+  'fifa.friendly': 'International Friendly',
+  'eng.w.1': "English Women's Super League",
+};
+
+const CORE_HISTORICAL_SLUGS = [
+  'eng.1', 'eng.2', 'eng.3', 'eng.fa', 'eng.league_cup',
+  'esp.1', 'esp.2', 'esp.copa_del_rey',
+  'ger.1', 'ger.2', 'ger.dfb_pokal',
+  'ita.1', 'ita.2', 'ita.coppa_italia',
+  'fra.1', 'fra.2', 'fra.coupe',
+  'ned.1', 'por.1', 'tur.1', 'bel.1', 'sco.1', 'aut.1', 'sui.1', 'gre.1',
+  'usa.1', 'usa.nwsl', 'mex.1', 'bra.1', 'arg.1', 'aus.1', 'jpn.1', 'ksa.1',
+  'uefa.champions', 'uefa.europa', 'uefa.europa.conf', 'uefa.nations',
+  'conmebol.libertadores', 'conmebol.sudamericana', 'concacaf.champions',
+  'fifa.friendly', 'eng.w.1',
+];
+
+function fetchWithTimeout(url: string, acceptJson = false): Promise<Response> {
   return fetch(url, {
-    headers: { 'User-Agent': USER_AGENT },
+    headers: acceptJson
+      ? { 'User-Agent': USER_AGENT, Accept: 'application/json' }
+      : { 'User-Agent': USER_AGENT },
     signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
   });
+}
+
+function formatSlugFallback(slug: string): string {
+  if (KNOWN_LEAGUE_NAMES[slug]) return KNOWN_LEAGUE_NAMES[slug];
+  return slug
+    .replace(/\b(\w+)\.(\d+)\b/g, '$1 Tier $2')
+    .replace(/[-._]+/g, ' ')
+    .replace(/\b\w/g, (c) => c.toUpperCase())
+    .trim();
 }
 
 interface CacheEntry<T> {
@@ -25,10 +119,111 @@ interface CacheEntry<T> {
   data: T;
 }
 
+interface LeagueScoreboardCacheEntry {
+  expiresAt: number;
+  leagueSlug: string;
+  leagueName: string | null;
+  events: any[];
+  leaguesMeta: Map<string, { name: string; slug: string }>;
+}
+
 const scoreboardCache = new Map<string, CacheEntry<ScrapedMatch[]>>();
 const scoreboardInflight = new Map<string, Promise<ScoreboardResult>>();
 const summaryCache = new Map<string, CacheEntry<Partial<ScrapedMatch>>>();
+const leagueScoreboardCache = new Map<string, LeagueScoreboardCacheEntry>();
+const leagueNameRegistry = new Map<string, string>();
+const hostCooldownUntil = new Map<string, number>();
+let catalogCache: CacheEntry<string[]> | null = null;
+let catalogInflight: Promise<string[]> | null = null;
 let bbcCache: CacheEntry<Map<string, string>> | null = null;
+
+async function fetchEspnJson(pathAndQuery: string): Promise<{ ok: boolean; status: number; data: any }> {
+  const now = Date.now();
+  const hosts = [...ESPN_SITE_HOSTS].sort((a, b) => {
+    const aCooling = (hostCooldownUntil.get(a) ?? 0) > now ? 1 : 0;
+    const bCooling = (hostCooldownUntil.get(b) ?? 0) > now ? 1 : 0;
+    return aCooling - bCooling;
+  });
+
+  let lastStatus = 502;
+  for (const host of hosts) {
+    try {
+      const res = await fetchWithTimeout(`${host}${pathAndQuery}`, true);
+      lastStatus = res.status;
+      if (res.status === 403 || res.status === 429) {
+        hostCooldownUntil.set(host, Date.now() + 45_000);
+        continue;
+      }
+      if (!res.ok) continue;
+      const text = await res.text();
+      if (!text || text.trimStart().startsWith('<')) {
+        hostCooldownUntil.set(host, Date.now() + 45_000);
+        continue;
+      }
+      return { ok: true, status: res.status, data: JSON.parse(text) };
+    } catch {
+      // Try secondary ESPN API host
+    }
+  }
+  return { ok: false, status: lastStatus, data: null };
+}
+
+/**
+ * Discovers all soccer league slugs registered in ESPN's core catalog (~220 leagues).
+ * Cached for 6 hours; returns `[]` cleanly if the catalog endpoint is unreachable.
+ */
+async function fetchEspnLeagueCatalog(): Promise<string[]> {
+  const now = Date.now();
+  if (catalogCache && catalogCache.expiresAt > now) {
+    return catalogCache.data;
+  }
+  if (catalogInflight) return catalogInflight;
+
+  catalogInflight = (async () => {
+    try {
+      const res = await fetchWithTimeout(
+        'https://sports.core.api.espn.com/v2/sports/soccer/leagues?limit=500',
+        true
+      );
+      if (!res.ok) return [];
+      const text = await res.text();
+      if (!text || text.trimStart().startsWith('<')) return [];
+      const parsed = JSON.parse(text) as { items?: { $ref?: string }[] };
+      const slugs: string[] = [];
+      const seen = new Set<string>();
+      for (const item of parsed.items || []) {
+        const match = String(item?.$ref || '').match(/\/leagues\/([^/?]+)/);
+        const slug = match?.[1]?.trim();
+        if (slug && /^[a-z0-9._-]{1,48}$/i.test(slug) && !seen.has(slug)) {
+          seen.add(slug);
+          slugs.push(slug);
+        }
+      }
+      if (slugs.length > 0) {
+        catalogCache = { expiresAt: Date.now() + 6 * 3_600_000, data: slugs };
+      }
+      return slugs;
+    } catch {
+      return [];
+    } finally {
+      catalogInflight = null;
+    }
+  })();
+
+  return catalogInflight;
+}
+
+export async function listEspnLeagues(): Promise<EspnLeagueInfo[]> {
+  const catalog = await fetchEspnLeagueCatalog();
+  const slugs = new Set<string>([...catalog, ...leagueNameRegistry.keys(), ...Object.keys(KNOWN_LEAGUE_NAMES)]);
+  const list: EspnLeagueInfo[] = [];
+  for (const slug of slugs) {
+    const name = leagueNameRegistry.get(slug) || KNOWN_LEAGUE_NAMES[slug] || formatSlugFallback(slug);
+    list.push({ slug, name });
+  }
+  list.sort((a, b) => a.name.localeCompare(b.name));
+  return list;
+}
 
 export function normalizeTeamName(name: string): string {
   return name
@@ -350,12 +545,11 @@ async function fetchEspnMatchSummary(
     return cached.data;
   }
 
-  const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event=${encodeURIComponent(
-    match.id
-  )}`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) return {};
-  const data = await res.json();
+  const espnResp = await fetchEspnJson(
+    `/apis/site/v2/sports/soccer/all/summary?event=${encodeURIComponent(match.id)}`
+  );
+  if (!espnResp.ok || !espnResp.data) return {};
+  const data = espnResp.data;
 
   const homeStats: TeamMatchStats = { ...match.homeStats };
   const awayStats: TeamMatchStats = { ...match.awayStats };
@@ -526,10 +720,12 @@ export function parseScoreboardEvent(
     null;
 
   const fallbackSlug = leagueSlugFromLinks || String(ev.season?.slug || '');
+  const resolvedSlug = leagueInfo?.slug || leagueSlugFromLinks || String(ev.season?.slug || 'soccer');
   const leagueName =
     ev.league?.name ||
     leagueInfo?.name ||
-    LEAGUE_NAMES[leagueSlugFromLinks.toLowerCase()] ||
+    leagueNameRegistry.get(resolvedSlug) ||
+    KNOWN_LEAGUE_NAMES[leagueSlugFromLinks.toLowerCase()] ||
     comp.notes?.[0]?.headline ||
     (fallbackSlug && !/regular-season|fall-season/i.test(fallbackSlug)
       ? fallbackSlug.replace(/[-.]+/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase())
@@ -551,7 +747,7 @@ export function parseScoreboardEvent(
   return {
     id: String(ev.id),
     league: leagueName,
-    leagueSlug: String(ev.season?.slug || 'soccer'),
+    leagueSlug: resolvedSlug,
     startDate: String(ev.date || new Date().toISOString()),
     state,
     minute,
@@ -596,11 +792,18 @@ async function runWithConcurrency<T>(
 
 export interface ScoreboardResult {
   matches: ScrapedMatch[];
-  sources: { espnCount: number; bbcCrossCheckedCount: number; scrapedAt: string };
+  sources: {
+    espnCount: number;
+    bbcCrossCheckedCount: number;
+    scrapedAt: string;
+    leagueCount?: number;
+  };
 }
 
 export interface ScoreboardOptions {
   dateYyyymmdd?: string;
+  league?: string;
+  allLeagues?: boolean;
   enrichLimit?: number;
   onlyFinished?: boolean;
 }
@@ -610,24 +813,98 @@ export function __resetScraperCachesForTests() {
   scoreboardCache.clear();
   scoreboardInflight.clear();
   summaryCache.clear();
+  leagueScoreboardCache.clear();
+  leagueNameRegistry.clear();
+  hostCooldownUntil.clear();
+  catalogCache = null;
+  catalogInflight = null;
   bbcCache = null;
 }
 
+function extractLeaguesMeta(json: any, fallbackSlug?: string): Map<string, { name: string; slug: string }> {
+  const map = new Map<string, { name: string; slug: string }>();
+  if (Array.isArray(json?.leagues)) {
+    for (const lg of json.leagues) {
+      const slug = lg.slug ? String(lg.slug) : fallbackSlug || '';
+      const name = lg.name ? String(lg.name) : '';
+      if (slug && name) {
+        map.set(slug, { name, slug });
+        leagueNameRegistry.set(slug, name);
+      }
+      if (lg.id && name) {
+        map.set(String(lg.id), { name, slug });
+      }
+    }
+  }
+  return map;
+}
+
+async function fetchSingleLeagueScoreboard(
+  slug: string,
+  dateYyyymmdd?: string
+): Promise<LeagueScoreboardCacheEntry | null> {
+  const cacheKey = `${slug}_${dateYyyymmdd || 'current'}`;
+  const now = Date.now();
+  const cached = leagueScoreboardCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) {
+    return cached;
+  }
+
+  const query = dateYyyymmdd ? `?dates=${encodeURIComponent(dateYyyymmdd)}` : '';
+  const resp = await fetchEspnJson(
+    `/apis/site/v2/sports/soccer/${encodeURIComponent(slug)}/scoreboard${query}`
+  );
+  if (!resp.ok || !resp.data) {
+    // Preserve stale cached data on transient errors so a single rate-limit blip doesn't drop leagues
+    return cached ?? null;
+  }
+
+  const events = Array.isArray(resp.data.events) ? resp.data.events : [];
+  const leaguesMeta = extractLeaguesMeta(resp.data, slug);
+  const leagueName = resp.data.leagues?.[0]?.name ? String(resp.data.leagues[0].name) : null;
+
+  // Refresh active/live/imminent leagues every 20s; quiet or historical leagues stay cached longer
+  const hasLiveOrImminent = events.some((ev: any) => {
+    const st = ev.status?.type?.state;
+    if (st === 'in') return true;
+    const startMs = Date.parse(String(ev.date || ''));
+    return Number.isFinite(startMs) && Math.abs(startMs - now) <= 3 * 3_600_000;
+  });
+
+  const ttl = dateYyyymmdd
+    ? 10 * 60_000
+    : hasLiveOrImminent
+    ? 20_000
+    : 5 * 60_000;
+
+  const entry: LeagueScoreboardCacheEntry = {
+    expiresAt: now + ttl,
+    leagueSlug: slug,
+    leagueName,
+    events,
+    leaguesMeta,
+  };
+  leagueScoreboardCache.set(cacheKey, entry);
+  return entry;
+}
+
 export function scrapeScoreboardMatches(options?: ScoreboardOptions): Promise<ScoreboardResult> {
-  // The enrichment depth is part of the key. Without it, a shallow (enrichLimit: 0)
-  // call used to populate the cache and every later full request received matches
-  // with no stats or events until the entry expired.
+  // The enrichment depth and league scope are part of the key. Without them, a shallow
+  // call could populate the cache and subsequent enriched requests would lack stats/events.
   const enrichLimit = options?.enrichLimit ?? 22;
-  const cacheKey = `${options?.dateYyyymmdd || 'live'}_${options?.onlyFinished ? 'post' : 'all'}_e${enrichLimit}`;
+  const leagueKey = options?.league || (options?.allLeagues ? 'all_leagues' : 'all');
+  const cacheKey = `${options?.dateYyyymmdd || 'live'}_${leagueKey}_${options?.onlyFinished ? 'post' : 'all'}_e${enrichLimit}`;
 
   const cached = scoreboardCache.get(cacheKey);
   if (cached && cached.expiresAt > Date.now()) {
+    const leagueSet = new Set(cached.data.map((m) => m.league));
     return Promise.resolve({
       matches: cached.data,
       sources: {
         espnCount: cached.data.length,
         bbcCrossCheckedCount: cached.data.filter((m) => m.bbcCrossCheck.matched).length,
         scrapedAt: new Date().toISOString(),
+        leagueCount: leagueSet.size,
       },
     });
   }
@@ -649,54 +926,145 @@ async function runScoreboardScrape(
 ): Promise<ScoreboardResult> {
   const now = Date.now();
   const ttl = options.dateYyyymmdd ? 180_000 : 15_000;
+  const specificLeague =
+    options.league && options.league !== 'all' ? options.league.trim() : undefined;
 
-  const espnUrl = options?.dateYyyymmdd
-    ? `https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard?dates=${encodeURIComponent(
-        options.dateYyyymmdd
-      )}`
-    : 'https://site.api.espn.com/apis/site/v2/sports/soccer/all/scoreboard';
+  const scoreboardPath = specificLeague
+    ? `/apis/site/v2/sports/soccer/${encodeURIComponent(specificLeague)}/scoreboard${
+        options.dateYyyymmdd ? `?dates=${encodeURIComponent(options.dateYyyymmdd)}` : ''
+      }`
+    : `/apis/site/v2/sports/soccer/all/scoreboard${
+        options.dateYyyymmdd ? `?dates=${encodeURIComponent(options.dateYyyymmdd)}` : ''
+      }`;
 
-  const [espnRes, bbcScores] = await Promise.all([
-    fetchWithTimeout(espnUrl),
-    options?.dateYyyymmdd ? Promise.resolve(new Map<string, string>()) : scrapeBbcScoreCrossCheck(),
+  const [espnResp, bbcScores, catalogSlugs] = await Promise.all([
+    fetchEspnJson(scoreboardPath),
+    options.dateYyyymmdd ? Promise.resolve(new Map<string, string>()) : scrapeBbcScoreCrossCheck(),
+    options.allLeagues && !specificLeague ? fetchEspnLeagueCatalog() : Promise.resolve([] as string[]),
   ]);
 
-  if (!espnRes.ok) {
-    throw new Error(`ESPN scoreboard scrape failed with HTTP ${espnRes.status}`);
+  if (!espnResp.ok || !espnResp.data) {
+    throw new Error(`ESPN scoreboard scrape failed with HTTP ${espnResp.status}`);
   }
 
-  const json = await espnRes.json();
-  const leagueLookup = new Map<string, { name: string; slug: string }>();
-  if (Array.isArray(json.leagues)) {
-    for (const lg of json.leagues) {
-      if (lg.slug && lg.name) {
-        leagueLookup.set(String(lg.slug), { name: String(lg.name), slug: String(lg.slug) });
+  const json = espnResp.data;
+  const baseLookup = extractLeaguesMeta(json, specificLeague);
+  const byId = new Map<string, ScrapedMatch>();
+
+  const ingestEvents = (
+    rawEvents: any[],
+    lookup: Map<string, { name: string; slug: string }>,
+    overrideLeague?: { slug: string; name: string | null },
+    applyActiveWindowFilter = false
+  ) => {
+    const minWindowMs = now - 36 * 3_600_000;
+    const maxWindowMs = now + 72 * 3_600_000;
+
+    for (const ev of rawEvents) {
+      const m = parseScoreboardEvent(ev, bbcScores, lookup);
+      if (!m) continue;
+
+      if (overrideLeague) {
+        if (overrideLeague.name && !ev.league?.name) {
+          m.league = overrideLeague.name;
+        }
+        m.leagueSlug = overrideLeague.slug;
       }
-      if (lg.id && lg.name) {
-        leagueLookup.set(String(lg.id), { name: String(lg.name), slug: String(lg.slug || '') });
+
+      if (applyActiveWindowFilter && m.state !== 'in') {
+        const startMs = Date.parse(m.startDate);
+        if (Number.isFinite(startMs) && (startMs < minWindowMs || startMs > maxWindowMs)) {
+          continue;
+        }
+      }
+
+      const prev = byId.get(m.id);
+      if (!prev) {
+        byId.set(m.id, m);
+      } else {
+        // Prefer richer canonical league title over generic fallback
+        const betterLeague =
+          prev.league === 'Global Soccer' || prev.league === prev.leagueSlug
+            ? m.league
+            : prev.league;
+        const betterSlug = prev.leagueSlug === 'soccer' ? m.leagueSlug : prev.leagueSlug;
+        byId.set(m.id, {
+          ...prev,
+          league: betterLeague,
+          leagueSlug: betterSlug,
+          scrapedOdds: prev.scrapedOdds || m.scrapedOdds,
+        });
+      }
+    }
+  };
+
+  const specificLeagueOverride = specificLeague
+    ? {
+        slug: specificLeague,
+        name:
+          (json.leagues?.[0]?.name ? String(json.leagues[0].name) : null) ||
+          KNOWN_LEAGUE_NAMES[specificLeague] ||
+          null,
+      }
+    : undefined;
+  ingestEvents(Array.isArray(json.events) ? json.events : [], baseLookup, specificLeagueOverride, false);
+
+  // Expand across all discovered ESPN leagues (paced in gentle chunks with per-league TTLs)
+  if (options.allLeagues && !specificLeague && catalogSlugs.length > 0) {
+    const targetSlugs = options.dateYyyymmdd
+      ? catalogSlugs.filter((s) => CORE_HISTORICAL_SLUGS.includes(s)).slice(0, 50)
+      : catalogSlugs;
+
+    const batchSize = 18;
+    for (let i = 0; i < targetSlugs.length; i += batchSize) {
+      const slice = targetSlugs.slice(i, i + batchSize);
+      const anyUncached = slice.some((s) => {
+        const cached = leagueScoreboardCache.get(`${s}_${options.dateYyyymmdd || 'current'}`);
+        return !cached || cached.expiresAt <= Date.now();
+      });
+
+      const entries = await runWithConcurrency(
+        slice.map((slug) => () => fetchSingleLeagueScoreboard(slug, options.dateYyyymmdd)),
+        6
+      );
+
+      for (const entry of entries) {
+        if (!entry) continue;
+        ingestEvents(
+          entry.events,
+          entry.leaguesMeta,
+          { slug: entry.leagueSlug, name: entry.leagueName },
+          !options.dateYyyymmdd
+        );
+      }
+
+      if (anyUncached && i + batchSize < targetSlugs.length) {
+        await new Promise((r) => setTimeout(r, 75));
       }
     }
   }
 
-  const rawEvents = Array.isArray(json.events) ? json.events : [];
-  let matches: ScrapedMatch[] = rawEvents
-    .map((ev: any) => parseScoreboardEvent(ev, bbcScores, leagueLookup))
-    .filter((m: ScrapedMatch | null): m is ScrapedMatch => m !== null);
+  let matches = Array.from(byId.values());
 
-  if (options?.onlyFinished) {
+  if (options.onlyFinished) {
     matches = matches.filter((m) => m.state === 'post');
   }
 
-  // Sort: live ('in') first, then upcoming ('pre') by soonest, then finished ('post')
+  // Sort: live ('in') first, then upcoming ('pre') by soonest, then finished ('post') most recent first
   matches.sort((a, b) => {
     const rank: Record<MatchLifecycleState, number> = { in: 0, pre: 1, post: 2 };
     if (rank[a.state] !== rank[b.state]) return rank[a.state] - rank[b.state];
-    return new Date(a.startDate).getTime() - new Date(b.startDate).getTime();
+    const ta = new Date(a.startDate).getTime();
+    const tb = new Date(b.startDate).getTime();
+    return a.state === 'post' ? tb - ta : ta - tb;
   });
 
-  // Enrich live matches first, then finished/upcoming up to enrichLimit
-  const enrichLimit = options?.enrichLimit ?? 22;
-  const toEnrich = matches.slice(0, enrichLimit);
+  // Always enrich all active live matches (up to 36) plus remaining fixtures up to enrichLimit
+  const enrichLimit = options.enrichLimit ?? 22;
+  const liveCount = matches.filter((m) => m.state === 'in').length;
+  const effectiveEnrichCount =
+    enrichLimit === 0 ? 0 : Math.max(enrichLimit, Math.min(36, liveCount));
+  const toEnrich = matches.slice(0, effectiveEnrichCount);
 
   await runWithConcurrency(
     toEnrich.map((m) => async () => {
@@ -711,6 +1079,7 @@ async function runScoreboardScrape(
   );
 
   scoreboardCache.set(cacheKey, { expiresAt: now + ttl, data: matches });
+  const leagueSet = new Set(matches.map((m) => m.league));
 
   return {
     matches,
@@ -718,6 +1087,7 @@ async function runScoreboardScrape(
       espnCount: matches.length,
       bbcCrossCheckedCount: matches.filter((m) => m.bbcCrossCheck.matched).length,
       scrapedAt: new Date().toISOString(),
+      leagueCount: leagueSet.size,
     },
   };
 }
@@ -731,12 +1101,11 @@ export async function scrapeSingleMatchDetails(matchId: string): Promise<Scraped
     return { ...existing, ...details };
   }
 
-  const url = `https://site.api.espn.com/apis/site/v2/sports/soccer/all/summary?event=${encodeURIComponent(
-    matchId
-  )}`;
-  const res = await fetchWithTimeout(url);
-  if (!res.ok) return null;
-  const data = await res.json();
+  const espnResp = await fetchEspnJson(
+    `/apis/site/v2/sports/soccer/all/summary?event=${encodeURIComponent(matchId)}`
+  );
+  if (!espnResp.ok || !espnResp.data) return null;
+  const data = espnResp.data;
   const comp = data.header?.competitions?.[0];
   if (!comp) return null;
 

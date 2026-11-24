@@ -210,6 +210,9 @@ export default function App() {
         {activeTab === 'radar' && (
           <RadarView
             matches={matches}
+            espnLeagues={feed.espnLeagues}
+            loadingLeague={feed.loadingLeague}
+            onSelectEspnLeague={feed.loadLeagueMatches}
             isLoading={feed.isLoadingMatches}
             isRefreshingSingle={feed.isRefreshingSingle}
             selectedMatchId={feed.selectedMatchId}

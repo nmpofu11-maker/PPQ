@@ -1,6 +1,6 @@
 import express, { type NextFunction, type Request, type Response } from 'express';
 import firebaseConfig from '../firebase-applet-config.json';
-import { scrapeScoreboardMatches, scrapeSingleMatchDetails } from './scraper';
+import { listEspnLeagues, scrapeScoreboardMatches, scrapeSingleMatchDetails } from './scraper';
 import { generateTacticalBrief } from './aiAlerts';
 import {
   PushService,
@@ -21,6 +21,7 @@ export interface AppDeps {
   push: PushService;
   scrapeScoreboard?: typeof scrapeScoreboardMatches;
   scrapeMatch?: typeof scrapeSingleMatchDetails;
+  listLeagues?: typeof listEspnLeagues;
   generateBrief?: typeof generateTacticalBrief;
   verifyToken?: TokenVerifier;
   budget?: ReturnType<typeof createDailyBudget>;
@@ -36,6 +37,7 @@ function intEnv(name: string, fallback: number): number {
 export function createApp(deps: AppDeps) {
   const scrapeScoreboard = deps.scrapeScoreboard ?? scrapeScoreboardMatches;
   const scrapeMatch = deps.scrapeMatch ?? scrapeSingleMatchDetails;
+  const listLeagues = deps.listLeagues ?? listEspnLeagues;
   const generateBrief = deps.generateBrief ?? generateTacticalBrief;
   const push = deps.push;
 
@@ -176,6 +178,16 @@ export function createApp(deps: AppDeps) {
 
   /* -------------------------------- Scraping -------------------------------- */
 
+  app.get('/api/leagues', scrapeLimit, async (_req, res) => {
+    try {
+      const leagues = await listLeagues();
+      res.json({ leagues, count: leagues.length });
+    } catch (err) {
+      console.error('[scrape] leagues failed:', err instanceof Error ? err.message : err);
+      res.status(502).json({ error: 'League catalog is unavailable right now.' });
+    }
+  });
+
   app.get('/api/matches/live', scrapeLimit, async (req, res) => {
     try {
       const dateParam = typeof req.query.date === 'string' ? req.query.date : undefined;
@@ -183,7 +195,20 @@ export function createApp(deps: AppDeps) {
         res.status(400).json({ error: 'Invalid date parameter. Expected YYYYMMDD.' });
         return;
       }
-      const data = await scrapeScoreboard({ dateYyyymmdd: dateParam, enrichLimit: 24 });
+      const leagueParam =
+        typeof req.query.league === 'string' && req.query.league.trim()
+          ? req.query.league.trim()
+          : undefined;
+      if (leagueParam && !/^[a-z0-9._-]{1,48}$/i.test(leagueParam)) {
+        res.status(400).json({ error: 'Invalid league parameter.' });
+        return;
+      }
+      const data = await scrapeScoreboard({
+        dateYyyymmdd: dateParam,
+        league: leagueParam,
+        allLeagues: !leagueParam,
+        enrichLimit: 24,
+      });
       res.json(data);
     } catch (err) {
       console.error('[scrape] live failed:', err instanceof Error ? err.message : err);
@@ -227,7 +252,7 @@ export function createApp(deps: AppDeps) {
 
       const batches = await Promise.all(
         dateStrings.map((dateYyyymmdd) =>
-          scrapeScoreboard({ dateYyyymmdd, onlyFinished: true, enrichLimit: 18 })
+          scrapeScoreboard({ dateYyyymmdd, allLeagues: true, onlyFinished: true, enrichLimit: 24 })
         )
       );
 

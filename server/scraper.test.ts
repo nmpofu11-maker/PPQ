@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   __resetScraperCachesForTests,
   classifyPlayType,
+  listEspnLeagues,
   parseLastFiveForm,
   parseMinute,
   parseScoreboardEvent,
@@ -231,4 +232,79 @@ test('a failed upstream scrape is not cached and is retried', async () => {
   fail = false;
   const ok = await scrapeScoreboardMatches({ enrichLimit: 0 });
   assert.equal(ok.matches.length, 1);
+});
+
+test('allLeagues discovers catalog slugs, merges leagues, filters out-of-window undated fixtures, and lists leagues', async () => {
+  const nowIso = new Date().toISOString();
+  const farFutureIso = new Date(Date.now() + 20 * 86_400_000).toISOString();
+  const inner = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('sports.core.api.espn.com/v2/sports/soccer/leagues')) {
+      return new Response(
+        JSON.stringify({
+          items: [
+            { $ref: 'http://sports.core.api.espn.com/v2/sports/soccer/leagues/eng.1?lang=en' },
+            { $ref: 'http://sports.core.api.espn.com/v2/sports/soccer/leagues/bra.1?lang=en' },
+          ],
+        }),
+        { status: 200 }
+      );
+    }
+    if (url.includes('/soccer/bra.1/scoreboard')) {
+      return new Response(
+        JSON.stringify({
+          leagues: [{ id: '85', name: 'Brazilian Serie A', slug: 'bra.1' }],
+          events: [
+            {
+              ...scoreboardEvent('888'),
+              date: nowIso,
+              season: { slug: '2026-season' },
+            },
+            {
+              ...scoreboardEvent('999'),
+              date: farFutureIso,
+              status: { clock: 0, displayClock: '00:00', type: { state: 'pre', shortDetail: 'Pre' } },
+            },
+          ],
+        }),
+        { status: 200 }
+      );
+    }
+    return inner(input, init);
+  }) as typeof fetch;
+
+  const res = await scrapeScoreboardMatches({ allLeagues: true, enrichLimit: 0 });
+  const ids = res.matches.map((m) => m.id).sort();
+  assert.deepEqual(ids, ['777', '888']);
+  const braMatch = res.matches.find((m) => m.id === '888');
+  assert.equal(braMatch?.league, 'Brazilian Serie A');
+  assert.equal(braMatch?.leagueSlug, 'bra.1');
+  assert.ok((res.sources.leagueCount ?? 0) >= 2);
+
+  const catalog = await listEspnLeagues();
+  assert.ok(catalog.some((l) => l.slug === 'bra.1' && l.name === 'Brazilian Serie A'));
+});
+
+test('fetchEspnJson fails over to secondary host when primary returns 403 HTML', async () => {
+  const seenHosts: string[] = [];
+  const inner = globalThis.fetch;
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.includes('site.api.espn.com')) {
+      seenHosts.push('site.api');
+      return new Response('<!doctype html><html>403 Forbidden</html>', {
+        status: 403,
+        headers: { 'content-type': 'text/html' },
+      });
+    }
+    if (url.includes('site.web.api.espn.com')) {
+      seenHosts.push('site.web.api');
+    }
+    return inner(input, init);
+  }) as typeof fetch;
+
+  const ok = await scrapeScoreboardMatches({ league: 'eng.1', enrichLimit: 0 });
+  assert.equal(ok.matches.length, 1);
+  assert.deepEqual(seenHosts, ['site.api', 'site.web.api']);
 });
